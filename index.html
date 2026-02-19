@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Naqaab Vs Niraaj - Landscape Only</title>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; background-color: #000; touch-action: none; }
+        canvas { display: block; background: #87CEEB; }
+        
+        /* Orientation Lock Message */
+        #rotateMessage {
+            display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: #000; color: #ffcc00; z-index: 1000; flex-direction: column;
+            justify-content: center; align-items: center; text-align: center;
+        }
+
+        /* Stats & UI */
+        .ui-container { position: absolute; top: 10px; left: 10px; right: 10px; display: flex; justify-content: space-between; color: #fff; z-index: 100; pointer-events: none; }
+        .ui-stats { font-size: 16px; font-weight: bold; background: rgba(0,0,0,0.6); padding: 5px 12px; border-radius: 8px; border: 1px solid #ffcc00; }
+
+        /* Mobile Controls */
+        .controls { position: absolute; bottom: 15px; width: 100%; display: flex; justify-content: space-between; padding: 0 40px; box-sizing: border-box; z-index: 300; }
+        .btn-ctrl { 
+            width: 75px; height: 75px; background: rgba(255, 255, 255, 0.15); 
+            border: 3px solid #fff; border-radius: 50%; color: white; 
+            display: flex; justify-content: center; align-items: center; 
+            font-weight: bold; font-size: 20px; user-select: none;
+        }
+        .btn-ctrl:active { background: rgba(255, 255, 255, 0.4); transform: scale(0.9); }
+
+        #bossHealthContainer { display: none; position: absolute; top: 50px; left: 50%; transform: translateX(-50%); width: 50%; height: 15px; background: #333; border: 2px solid #fff; border-radius: 10px; z-index: 15; overflow: hidden; }
+        #bossHealthBar { width: 100%; height: 100%; background: linear-gradient(to right, #f00, #ff0); }
+
+        .overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; color: white; z-index: 500; background: rgba(0,0,0,0.85); text-align: center; }
+        .start-btn { padding: 12px 35px; font-size: 22px; background: #e74c3c; color: white; border: none; border-radius: 25px; cursor: pointer; margin-top: 15px; }
+
+        /* Screen is Portrait check */
+        @media screen and (orientation: portrait) {
+            #rotateMessage { display: flex; }
+            #mobileControls, .ui-container { display: none; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="rotateMessage">
+        <h2 style="font-size: 40px;">🔄</h2>
+        <h2>PLEASE ROTATE TO LANDSCAPE</h2>
+        <p>Game sirf terhay phone par chalti hai</p>
+    </div>
+
+    <div class="ui-container">
+        <div class="ui-stats">LVL: <span id="lvl">1</span> | SCR: <span id="scr">0</span> | HP: <span id="hlt">100</span>%</div>
+        <div style="color:#ffcc00; font-weight:bold; font-size: 20px;">AJ STUDIO</div>
+    </div>
+
+    <div id="bossHealthContainer"><div id="bossHealthBar"></div></div>
+
+    <div class="controls" id="mobileControls">
+        <div style="display: flex; gap: 20px;">
+            <div class="btn-ctrl" id="leftBtn">◀</div>
+            <div class="btn-ctrl" id="rightBtn">▶</div>
+        </div>
+        <div style="display: flex; gap: 20px;">
+            <div class="btn-ctrl" id="jumpBtn" style="border-color: #2ecc71;">UP</div>
+            <div class="btn-ctrl" id="fireBtn" style="border-color: #e74c3c;">FIRE</div>
+        </div>
+    </div>
+
+    <div id="startScreen" class="overlay">
+        <h1 style="color:#ffcc00; font-size: 50px; margin:0;">NAQAAB VS NIRAAJ</h1>
+        <button class="start-btn" onclick="startGame()">START MISSION</button>
+    </div>
+
+    <div id="gameOverScreen" class="overlay" style="display:none;">
+        <h1 style="color:#ff4757;">MISSION FAILED</h1>
+        <button class="start-btn" onclick="location.reload()">RETRY</button>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+        
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            if(window.innerHeight > window.innerWidth) {
+                if(gameRunning) gameRunning = false; // Pause if rotated to portrait
+            }
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        let score, health, level, gameRunning = false, isBossMode, nextBossScore, gameSpeed;
+        const keys = {};
+
+        // Image Assets
+        const ratImg = new Image(); ratImg.src = 'rat.png';
+        const catImg = new Image(); catImg.src = 'cat.png';
+        const bossImg = new Image(); bossImg.src = 'boss.png';
+        const bulletImg = new Image(); bulletImg.src = 'bullet.png';
+        const crowImg = new Image(); crowImg.src = 'crow.png';
+        const bossFireImg = new Image(); bossFireImg.src = 'boss_fire.png';
+
+        // Controls Setup
+        const setupBtn = (id, key) => {
+            const btn = document.getElementById(id);
+            btn.addEventListener("touchstart", (e) => { e.preventDefault(); keys[key] = true; });
+            btn.addEventListener("touchend", (e) => { e.preventDefault(); keys[key] = false; });
+        };
+        setupBtn("leftBtn", "ArrowLeft");
+        setupBtn("rightBtn", "ArrowRight");
+        document.getElementById("jumpBtn").addEventListener("touchstart", (e) => { e.preventDefault(); if(rat.grounded) jump(); });
+        document.getElementById("fireBtn").addEventListener("touchstart", (e) => { e.preventDefault(); shoot(); });
+
+        function jump() { rat.dy = rat.jumpPower; rat.grounded = false; }
+        function shoot() { bullets.push({ x: rat.x + 120, y: rat.y + 40, w: 45, h: 22, v: 22 }); }
+
+        function init() {
+            score = 0; health = 100; level = 1; gameRunning = true;
+            isBossMode = false; nextBossScore = 500; gameSpeed = 6;
+            bullets = []; enemyBullets = []; cats = []; crows = []; stars = [];
+            rat = { x: 100, y: canvas.height - 200, w: 130, h: 90, dy: 0, speed: 10, jumpPower: -21, gravity: 0.85, grounded: false };
+            for(let i=0; i<60; i++) stars.push({x: Math.random()*canvas.width, y: Math.random()*canvas.height, s: Math.random()*2});
+        }
+
+        function startGame() { 
+            if(window.innerHeight > window.innerWidth) return; // Don't start in portrait
+            init(); 
+            document.getElementById("startScreen").style.display = "none"; 
+            update(); 
+        }
+
+        function update() {
+            if (!gameRunning) return;
+
+            // Player movement
+            if (keys["ArrowLeft"] && rat.x > 0) rat.x -= rat.speed;
+            if (keys["ArrowRight"] && rat.x < canvas.width - rat.w) rat.x += rat.speed;
+            rat.dy += rat.gravity; rat.y += rat.dy;
+            if (rat.y > canvas.height - 200) { rat.y = canvas.height - 200; rat.dy = 0; rat.grounded = true; }
+
+            // Boss Trigger & Entry
+            if (score >= nextBossScore && !isBossMode) {
+                isBossMode = true; cats = []; crows = [];
+                document.getElementById("bossHealthContainer").style.display = "block";
+                cats.push({ x: canvas.width - 300, startX: canvas.width - 300, y: -300, targetY: canvas.height - 350, w: 280, h: 250, boss: true, hp: 100, maxHp: 100, state: 'falling', last: Date.now() });
+            }
+
+            if (!isBossMode) {
+                if (Math.random() < 0.018) cats.push({ x: canvas.width, y: canvas.height - 180, w: 90, h: 70, boss: false });
+                if (Math.random() < 0.007) crows.push({ x: canvas.width, y: canvas.height - 300, w: 75, h: 55, speed: gameSpeed + 1, fired: false });
+            }
+
+            // Enemies
+            for (let i = cats.length - 1; i >= 0; i--) {
+                let c = cats[i];
+                if (c.boss) {
+                    if (c.state === 'falling') { c.y += 10; if (c.y >= c.targetY) c.state = 'fight'; }
+                    else {
+                        let now = Date.now();
+                        if (now - c.last > 1400) { fireE(c, true); c.last = now; }
+                        c.x = c.startX + Math.sin(Date.now()/500) * 80;
+                    }
+                } else {
+                    c.x -= gameSpeed;
+                    if (checkC(rat, c)) { health -= 10; cats.splice(i, 1); }
+                }
+            }
+
+            // Crows
+            for (let i = crows.length - 1; i >= 0; i--) {
+                let cr = crows[i]; cr.x -= cr.speed;
+                if (!cr.fired && cr.x < rat.x + 500) { fireE(cr, false); cr.fired = true; }
+                if (checkC(rat, cr)) { health -= 5; crows.splice(i, 1); }
+            }
+
+            function fireE(e, isB) {
+                let ang = Math.atan2((rat.y + 45) - (e.y + 40), (rat.x + 50) - e.x);
+                enemyBullets.push({ x: e.x, y: e.y + 40, w: isB?60:20, h: isB?40:15, vx: Math.cos(ang)*11, vy: Math.sin(ang)*11, isB: isB });
+            }
+
+            // Bullet Collision
+            for (let bi = bullets.length - 1; bi >= 0; bi--) {
+                let b = bullets[bi]; b.x += b.v;
+                cats.forEach((c, ci) => {
+                    if (bullets[bi] && checkC(b, c)) {
+                        bullets.splice(bi, 1);
+                        if (c.boss) {
+                            c.hp--;
+                            document.getElementById("bossHealthBar").style.width = (c.hp / c.maxHp * 100) + "%";
+                            if (c.hp <= 0) {
+                                isBossMode = false; cats.splice(ci, 1); level++; score += 300; nextBossScore += 1000;
+                                document.getElementById("bossHealthContainer").style.display = "none";
+                            }
+                        } else { cats.splice(ci, 1); score += 10; }
+                    }
+                });
+            }
+
+            enemyBullets.forEach((eb, i) => { eb.x += eb.vx; eb.y += eb.vy; if (checkC(eb, rat)) { health -= eb.isB ? 15 : 5; enemyBullets.splice(i, 1); } });
+
+            if (health <= 0) { gameRunning = false; document.getElementById("gameOverScreen").style.display = "flex"; }
+
+            document.getElementById("scr").innerText = score;
+            document.getElementById("hlt").innerText = Math.max(0, health);
+            document.getElementById("lvl").innerText = level;
+
+            draw();
+            requestAnimationFrame(update);
+        }
+
+        function checkC(a, b) { return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            if (isBossMode) {
+                ctx.fillStyle = "#050510"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = "white"; stars.forEach(s => ctx.fillRect(s.x, s.y, s.s, s.s));
+            } else {
+                ctx.fillStyle = "#87CEEB"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
+            ctx.fillStyle = "#2ecc71"; ctx.fillRect(0, canvas.height - 100, canvas.width, 100);
+            ctx.drawImage(ratImg, rat.x, rat.y, rat.w, rat.h);
+            cats.forEach(c => ctx.drawImage(c.boss ? bossImg : catImg, c.x, c.y, c.w, c.h));
+            crows.forEach(cr => ctx.drawImage(crowImg, cr.x, cr.y, cr.w, cr.h));
+            bullets.forEach(b => ctx.drawImage(bulletImg, b.x, b.y, b.w, b.h));
+            enemyBullets.forEach(eb => {
+                if (eb.isB) ctx.drawImage(bossFireImg, eb.x, eb.y, eb.w, eb.h);
+                else { ctx.fillStyle = "yellow"; ctx.beginPath(); ctx.arc(eb.x, eb.y, 7, 0, Math.PI*2); ctx.fill(); }
+            });
+        }
+    </script>
+</body>
+</html>
